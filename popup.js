@@ -1,5 +1,31 @@
 // popup.js - 增强版
 
+async function sendMessageWithInjectionFallback(tabId, payload) {
+    try {
+        await chrome.tabs.sendMessage(tabId, payload);
+        return;
+    } catch (error) {
+        const message = error?.message || '';
+        const shouldInject = message.includes('Receiving end does not exist') || message.includes('Could not establish connection');
+
+        if (!shouldInject) {
+            throw error;
+        }
+
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content.js']
+        });
+
+        await chrome.scripting.insertCSS({
+            target: { tabId },
+            files: ['inject.css']
+        });
+
+        await chrome.tabs.sendMessage(tabId, payload);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const translateBtn = document.getElementById('translateBtn');
     const apiKeyInput = document.getElementById('apiKey');
@@ -44,23 +70,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab?.id) {
+                throw new Error('未找到当前标签页');
+            }
 
-            await chrome.tabs.sendMessage(tab.id, {
+            await sendMessageWithInjectionFallback(tab.id, {
                 action: 'start_translate',
-                apiKey: apiKey,
-                targetLang: targetLang
+                apiKey,
+                targetLang
             });
 
-            // 3秒后恢复按钮
             setTimeout(() => {
                 translateBtn.disabled = false;
                 translateBtn.textContent = '开始翻译';
-                window.close(); // 自动关闭弹窗
+                window.close();
             }, 3000);
 
         } catch (error) {
             console.error('错误:', error);
-            alert('翻译失败，请刷新页面重试');
+            const reason = error?.message ? `\n原因：${error.message}` : '';
+            alert(`翻译失败，请刷新页面重试${reason}`);
             translateBtn.disabled = false;
             translateBtn.textContent = '开始翻译';
         }
