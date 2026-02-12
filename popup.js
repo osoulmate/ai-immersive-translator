@@ -14,7 +14,7 @@ async function sendMessageWithInjectionFallback(tabId, payload) {
 
         await chrome.scripting.executeScript({
             target: { tabId },
-            files: ['content.js']
+            files: ['cache.js', 'content.js']
         });
 
         await chrome.scripting.insertCSS({
