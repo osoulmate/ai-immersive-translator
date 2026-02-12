@@ -269,6 +269,8 @@ class ImmersiveTranslator {
         this.isProcessingQueue = false;
         this.concurrentLimit = 3; // 并发限制
         this.activeRequests = 0;
+        this.completedCount = 0;
+        this.totalCount = 0;
         this.cache = null;
         this.useCache = true; // 默认启用缓存
         this.initCache();
@@ -332,15 +334,9 @@ class ImmersiveTranslator {
         }
 
         try {
-            const response = await chrome.runtime.sendMessage({
-                action: 'translateSelection',
-                text: text,
-                apiKey: this.apiKey,
-                targetLang: this.targetLang || '中文'
-            });
-
-            if (response && response.success) {
-                this.showTranslationTooltip(response.result);
+            const result = await this.requestTranslationCompletion(text, false);
+            if (result) {
+                this.showTranslationTooltip(result);
             } else {
                 this.showNotification('翻译失败，请重试');
             }
@@ -417,7 +413,6 @@ class ImmersiveTranslator {
 
         console.log('开始翻译，目标语言:', targetLang);
 
-        // 收集所有需要翻译的元素
         const elements = this.collectTranslatableElements();
         console.log('找到', elements.length, '个需要翻译的元素');
 
@@ -427,19 +422,21 @@ class ImmersiveTranslator {
             return;
         }
 
-        // 将元素添加到队列
         this.translationQueue = elements.map(element => ({
             element,
             text: this.extractTextContent(element),
             status: 'pending'
         }));
 
-        // 开始处理队列
+        this.completedCount = 0;
+        this.totalCount = this.translationQueue.length;
+        this.showProgressIndicator(this.totalCount);
         this.processQueue();
     }
 
     stopTranslation() {
         this.translating = false;
+        this.translationQueue = [];
         this.hideProgressIndicator();
         console.log('翻译已停止');
     }
@@ -698,191 +695,215 @@ class ImmersiveTranslator {
     }
 
     async processQueue() {
-        if (this.isProcessingQueue || this.translationQueue.length === 0) {
+        if (this.isProcessingQueue) {
             return;
         }
 
         this.isProcessingQueue = true;
 
-        while (this.translationQueue.length > 0) {
-            // 等待并发限制
-            while (this.activeRequests >= this.concurrentLimit) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+        while (this.translating) {
+            while (this.activeRequests < this.concurrentLimit) {
+                const nextItem = this.translationQueue.find(item => item.status === 'pending');
+                if (!nextItem) {
+                    break;
+                }
+
+                nextItem.status = 'processing';
+                this.activeRequests++;
+                this.processTranslationItem(nextItem)
+                    .catch((error) => {
+                        console.error('翻译条目失败:', error);
+                        nextItem.status = 'failed';
+                    })
+                    .finally(() => {
+                        this.activeRequests--;
+                        this.completedCount++;
+                        this.updateProgressIndicator(this.completedCount, this.totalCount);
+                    });
             }
 
-            const pendingItems = this.translationQueue.filter(item => item.status === 'pending');
-            if (pendingItems.length === 0) {
+            const hasPending = this.translationQueue.some(item => item.status === 'pending' || item.status === 'processing');
+            if (!hasPending) {
                 break;
             }
 
-            // 取出一批待翻译项
-            const batch = pendingItems.slice(0, Math.min(5, pendingItems.length));
-            batch.forEach(item => item.status = 'processing');
+            await new Promise(resolve => setTimeout(resolve, 80));
+        }
 
-            // 批量翻译
-            this.translateBatch(batch).then(() => {
-                // 检查是否所有项目都已完成
-                const allDone = this.translationQueue.every(item =>
-                    item.status === 'completed' || item.status === 'failed'
-                );
+        this.isProcessingQueue = false;
 
-                if (allDone) {
-                    this.translating = false;
-                    this.isProcessingQueue = false;
-                    console.log('翻译完成');
-                }
-            });
+        if (this.translating) {
+            this.translating = false;
+            this.hideProgressIndicator();
+            this.showNotification(`翻译完成：${this.completedCount}/${this.totalCount}`);
+            console.log('翻译完成');
         }
     }
 
-    async translateBatch(batch) {
-        this.activeRequests++;
+    async processTranslationItem(item) {
+        const cached = this.useCache && this.cache && typeof this.cache.get === 'function'
+            ? await this.cache.get(item.text, this.targetLang)
+            : null;
 
-        try {
-            // 检查缓存
-            const texts = batch.map(item => item.text);
-            let translations = [];
-
-            if (this.useCache && this.cache && typeof this.cache.get === 'function') {
-                // 尝试从缓存获取
-                try {
-                    translations = await Promise.all(
-                        texts.map(text => this.cache.get(text, this.targetLang))
-                    );
-                } catch (cacheError) {
-                    console.warn('缓存获取失败，使用API翻译:', cacheError);
-                    this.useCache = false;
-                    translations = Array(texts.length).fill(null);
-                }
-
-                // 标记哪些需要从API获取
-                const needsTranslation = [];
-                const needsTranslationIndices = [];
-
-                for (let i = 0; i < translations.length; i++) {
-                    if (!translations[i]) {
-                        needsTranslation.push(texts[i]);
-                        needsTranslationIndices.push(i);
-                    }
-                }
-
-                // 如果有需要翻译的文本
-                if (needsTranslation.length > 0) {
-                    console.log(`从缓存中命中 ${translations.length - needsTranslation.length} 个，需要翻译 ${needsTranslation.length} 个`);
-
-                    // 通过runtime API获取翻译
-                    const response = await chrome.runtime.sendMessage({
-                        action: 'translateBatch',
-                        texts: needsTranslation,
-                        apiKey: this.apiKey,
-                        targetLang: this.targetLang
-                    });
-
-                    if (response && response.success) {
-                        // 更新翻译结果并缓存
-                        for (let j = 0; j < needsTranslationIndices.length; j++) {
-                            const index = needsTranslationIndices[j];
-                            if (response.results[j]) {
-                                translations[index] = response.results[j];
-                                // 保存到缓存（添加错误处理）
-                                try {
-                                    if (this.cache && typeof this.cache.set === 'function') {
-                                        await this.cache.set(texts[index], this.targetLang, response.results[j]);
-                                    }
-                                } catch (cacheError) {
-                                    console.warn('缓存保存失败:', cacheError);
-                                }
-                            }
-                        }
-                    } else {
-                        console.error('批量翻译失败:', response?.error);
-                        // API失败时，标记这些项目为失败
-                        needsTranslationIndices.forEach(index => {
-                            translations[index] = null;
-                        });
-                    }
-                } else {
-                    console.log('全部从缓存中获取');
-                }
-            } else {
-                // 无缓存模式，全部从API获取
-                const response = await chrome.runtime.sendMessage({
-                    action: 'translateBatch',
-                    texts: texts,
-                    apiKey: this.apiKey,
-                    targetLang: this.targetLang
-                });
-
-                if (response && response.success) {
-                    translations = response.results;
-                } else {
-                    console.error('批量翻译失败:', response?.error);
-                    translations = Array(texts.length).fill(null);
-                }
-            }
-
-            // 注入翻译结果
-            batch.forEach((item, index) => {
-                if (translations[index]) {
-                    this.injectTranslation(item.element, translations[index]);
-                    item.status = 'completed';
-                } else {
-                    item.status = 'failed';
-                }
-            });
-        } catch (error) {
-            console.error('批量翻译失败:', error);
-            batch.forEach(item => item.status = 'failed');
-        } finally {
-            this.activeRequests--;
-            // 继续处理队列
-            this.processQueue();
-        }
-    }
-
-    injectTranslation(originalElement, translatedText) {
-        // 标记为已翻译
-        originalElement.dataset.translated = 'true';
-
-        // 检查是否已经存在翻译
-        const existingTranslation = originalElement.nextElementSibling;
-        if (existingTranslation && existingTranslation.classList.contains('ai-translation-block')) {
-            existingTranslation.textContent = translatedText;
+        if (cached) {
+            this.injectTranslation(item.element, cached, false);
+            item.status = 'completed';
             return;
         }
 
-        // 创建翻译元素
-        const transElement = document.createElement('div');
-        transElement.className = 'ai-translation-block';
+        let translated = '';
+        const translationElement = this.injectTranslation(item.element, '', true);
+
+        try {
+            translated = await this.streamTranslateText(item.text, (partialText) => {
+                this.injectTranslation(item.element, partialText, true, translationElement);
+            });
+        } catch (error) {
+            console.warn('流式翻译失败，回退到普通翻译:', error);
+            translated = await this.requestTranslationCompletion(item.text, false);
+        }
+
+        if (!translated) {
+            item.status = 'failed';
+            return;
+        }
+
+        this.injectTranslation(item.element, translated, false, translationElement);
+
+        if (this.useCache && this.cache && typeof this.cache.set === 'function') {
+            try {
+                await this.cache.set(item.text, this.targetLang, translated);
+            } catch (cacheError) {
+                console.warn('缓存保存失败:', cacheError);
+            }
+        }
+
+        item.status = 'completed';
+    }
+
+    async streamTranslateText(text, onPartial) {
+        const response = await this.requestTranslationCompletion(text, true);
+
+        if (typeof response === 'string') {
+            onPartial(response);
+            return response;
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('当前环境不支持流式读取');
+        }
+
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let fullText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data:')) {
+                    continue;
+                }
+
+                const payload = trimmed.slice(5).trim();
+                if (!payload || payload === '[DONE]') {
+                    continue;
+                }
+
+                try {
+                    const parsed = JSON.parse(payload);
+                    const delta = parsed.choices?.[0]?.delta?.content || '';
+                    if (delta) {
+                        fullText += delta;
+                        onPartial(fullText);
+                    }
+                } catch (parseError) {
+                    console.warn('解析流式分片失败:', parseError);
+                }
+            }
+        }
+
+        return fullText.trim();
+    }
+
+    async requestTranslationCompletion(text, stream = false) {
+        const API_URL = 'https://api.siliconflow.cn/v1/chat/completions';
+        const systemPrompt = this.targetLang === '代码解释'
+            ? '你是一个代码解释助手。请解释以下代码的功能和关键点，用简洁的中文回答。'
+            : `你是一个翻译引擎。请将文本翻译成${this.targetLang || '中文'}。不要输出任何解释，直接输出译文。`;
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'Qwen/Qwen2.5-7B-Instruct',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: text }
+                ],
+                temperature: 0.3,
+                max_tokens: 1000,
+                stream
+            })
+        });
+
+        if (!response.ok) {
+            let message = `API Error: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                message = errorData?.error?.message || message;
+            } catch (error) {
+                console.warn('解析API错误失败:', error);
+            }
+            throw new Error(message);
+        }
+
+        if (stream) {
+            return response;
+        }
+
+        const data = await response.json();
+        return data?.choices?.[0]?.message?.content?.trim() || '';
+    }
+
+    injectTranslation(originalElement, translatedText, isStreaming = false, existingTranslationNode = null) {
+        originalElement.dataset.translated = 'true';
+
+        const existingTranslation = existingTranslationNode || originalElement.nextElementSibling;
+        let transElement = existingTranslation;
+
+        if (!transElement || !transElement.classList?.contains('ai-translation-block')) {
+            transElement = document.createElement('div');
+            transElement.className = 'ai-translation-block';
+            transElement.setAttribute('data-translated', 'true');
+            originalElement.parentNode.insertBefore(transElement, originalElement.nextSibling);
+        }
+
         transElement.textContent = translatedText;
-        transElement.setAttribute('data-translated', 'true');
+        transElement.classList.toggle('streaming', isStreaming);
 
-        // 优化样式，匹配图片效果
-        transElement.style.cssText = `
-        color: #333;
-        font-size: 1em;
-        line-height: 1.6;
-        margin-top: 8px;
-        margin-bottom: 16px;
-        display: block;
-        text-align: left;
-        padding-left: 0;
-        border-left: none;
-        background: none;
-        font-weight: normal;
-        position: static;
-        z-index: 1;
-      `;
-
-        // 关键修复：插入到原文元素的外部下方，而不是内部
-        originalElement.parentNode.insertBefore(transElement, originalElement.nextSibling);
-
-        // 添加淡入效果
-        requestAnimationFrame(() => {
-            transElement.style.transition = 'opacity 0.3s ease, transform 0.2s ease';
+        if (isStreaming) {
+            transElement.style.opacity = '0.95';
+            transElement.style.transform = 'translateY(1px)';
+        } else {
+            transElement.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
             transElement.style.opacity = '1';
             transElement.style.transform = 'translateY(0)';
-        });
+        }
+
+        return transElement;
     }
 
     showProgressIndicator(total) {
