@@ -254,7 +254,7 @@ class ImmersiveTranslator {
                 '.outer-wrapper',
                 '.inner-wrapper'
             ],
-            minLength: 2,
+            minLength: 5,
             maxLength: 800
         };
 
@@ -453,41 +453,59 @@ class ImmersiveTranslator {
         const elements = [];
         const seen = new Set();
 
-        const targetSelector = 'p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, figcaption, dt, dd, div, span';
-        const mainSelectors = ['main', 'article', '[role="main"]', '.content', '.documentation', '.post-content', '.docs-content', '.markdown', '.prose', '.theme-doc-markdown'];
+        // 简化选择器：使用更通用的选择器
+        const targetTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'td', 'th', 'div'];
 
-        const contexts = [];
-        mainSelectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(node => contexts.push(node));
-        });
+        // 首先尝试选择主要内容区域
+        const mainSelectors = ['main', 'article', '[role="main"]', '.content', '.documentation', '.post-content', '.docs-content', '.markdown', '.prose'];
 
-        if (contexts.length === 0) {
-            contexts.push(document.body);
+        for (const selector of mainSelectors) {
+            const found = document.querySelectorAll(selector);
+            if (found.length > 0) {
+                found.forEach(context => {
+                    targetTags.forEach(tag => {
+                        const tagElements = context.querySelectorAll(tag);
+                        tagElements.forEach(element => {
+                            if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                                seen.add(element);
+                                elements.push(element);
+                            }
+                        });
+                    });
+                });
+                // 不要break，继续检查其他主要内容区域
+                // break; // 找到主要内容区域后就停止
+            }
         }
 
-        const addIfValid = (element) => {
-            if (!element || seen.has(element)) {
-                return;
-            }
-            if (this.shouldTranslateElement(element)) {
-                seen.add(element);
-                elements.push(element);
-            }
-        };
+        // 如果没有找到主要内容区域，则在整个文档中查找
+        if (elements.length === 0) {
+            targetTags.forEach(tag => {
+                const tagElements = document.querySelectorAll(tag);
+                tagElements.forEach(element => {
+                    if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                        seen.add(element);
+                        elements.push(element);
+                    }
+                });
+            });
 
-        // 第一阶段：语义标签匹配
-        contexts.forEach(context => {
-            context.querySelectorAll(targetSelector).forEach(addIfValid);
-        });
+        // 补充扫描：对常见承载正文的 div/span 再做一次兜底，减少漏翻
+        const supplementSelectors = [
+            'div[class*="text"]',
+            'div[class*="content"]',
+            'div[class*="description"]',
+            'span[class*="text"]'
+        ];
 
-        // 第二阶段：文本节点兜底，解决文档站 div/span 深层结构漏翻
-        contexts.forEach(context => {
-            const walker = document.createTreeWalker(context, NodeFilter.SHOW_TEXT, {
-                acceptNode: (node) => {
-                    const text = (node.textContent || '').trim();
-                    return text.length >= this.config.minLength ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        supplementSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(element => {
+                if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                    seen.add(element);
+                    elements.push(element);
                 }
             });
+        });
 
             let textNode;
             while ((textNode = walker.nextNode())) {
@@ -546,8 +564,8 @@ class ImmersiveTranslator {
             return false;
         }
 
-        // 对容器型 div/span 做额外限制，避免把大块容器当成段落
-        if ((element.tagName.toLowerCase() === 'div' || element.tagName.toLowerCase() === 'span') && !this.isMeaningfulDivBlock(element)) {
+        // 对容器型 div 做额外限制，避免把大块容器当成段落
+        if (element.tagName.toLowerCase() === 'div' && !this.isMeaningfulDivBlock(element)) {
             return false;
         }
 
@@ -629,33 +647,24 @@ class ImmersiveTranslator {
     }
 
     isInNonContentArea(element) {
-        if (!element || !element.closest) {
-            return false;
-        }
-
-        const blockedByTag = element.closest('nav, header, footer, aside, [role="navigation"], [aria-label*="breadcrumb" i]');
-        if (blockedByTag) {
-            return true;
-        }
-
-        const blockedByClass = element.closest('.navbar, .sidebar, .sidebar-nav, .header-nav, .footer-nav, .breadcrumb, .pagination, .toc, .table-of-contents');
-        return !!blockedByClass;
+        const blockedAncestor = element.closest('nav, header, footer, aside, [role="navigation"], .navbar, .sidebar, .menu, .breadcrumb, .pagination');
+        return !!blockedAncestor;
     }
 
     isMeaningfulDivBlock(element) {
-        const tagName = element.tagName.toLowerCase();
-        if (tagName !== 'div' && tagName !== 'span') {
-            return true;
-        }
-
-        // 如果包含明确的块级正文子节点，优先翻译子节点，避免容器重复
-        const blockChildren = element.querySelectorAll(':scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6, :scope > li, :scope > blockquote, :scope > section, :scope > article, :scope > ul, :scope > ol');
+        const blockChildren = element.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, section, article');
         if (blockChildren.length > 0) {
             return false;
         }
 
-        const text = this.extractTextContent(element);
-        return text.length >= this.config.minLength && text.length <= this.config.maxLength;
+        const directText = Array.from(element.childNodes)
+            .filter(node => node.nodeType === Node.TEXT_NODE)
+            .map(node => node.textContent || '')
+            .join(' ')
+            .trim()
+            .replace(/\s+/g, ' ');
+
+        return directText.length >= this.config.minLength && directText.length <= this.config.maxLength;
     }
 
     containsCodePatterns(text) {
@@ -904,62 +913,41 @@ class ImmersiveTranslator {
             ? '你是一个代码解释助手。请解释以下代码的功能和关键点，用简洁的中文回答。'
             : `你是一个翻译引擎。请将文本翻译成${this.targetLang || '中文'}。不要输出任何解释，直接输出译文。`;
 
-        try {
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${this.apiKey}`
-                },
-                body: JSON.stringify({
-                    model: 'Qwen/Qwen2.5-7B-Instruct',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: text }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 1000,
-                    stream
-                })
-            });
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'Qwen/Qwen2.5-7B-Instruct',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: text }
+                ],
+                temperature: 0.3,
+                max_tokens: 1000,
+                stream
+            })
+        });
 
-            if (!response.ok) {
-                let message = `API Error: ${response.status}`;
-                try {
-                    const errorData = await response.json();
-                    message = errorData?.error?.message || message;
-                } catch (error) {
-                    console.warn('解析API错误失败:', error);
-                }
-                throw new Error(message);
+        if (!response.ok) {
+            let message = `API Error: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                message = errorData?.error?.message || message;
+            } catch (error) {
+                console.warn('解析API错误失败:', error);
             }
-
-            if (stream) {
-                return response;
-            }
-
-            const data = await response.json();
-            return data?.choices?.[0]?.message?.content?.trim() || '';
-        } catch (fetchError) {
-            console.warn('内容脚本直连翻译失败，尝试通过后台服务翻译:', fetchError);
-
-            if (stream) {
-                throw fetchError;
-            }
-
-            const runtimeResponse = await chrome.runtime.sendMessage({
-                action: 'translateSelection',
-                text,
-                apiKey: this.apiKey,
-                targetLang: this.targetLang || '中文'
-            });
-
-            if (runtimeResponse?.success) {
-                return runtimeResponse.result || '';
-            }
-
-            throw new Error(runtimeResponse?.error || fetchError?.message || '翻译请求失败');
+            throw new Error(message);
         }
+
+        if (stream) {
+            return response;
+        }
+
+        const data = await response.json();
+        return data?.choices?.[0]?.message?.content?.trim() || '';
     }
 
     injectTranslation(originalElement, translatedText, isStreaming = false, existingTranslationNode = null) {
