@@ -10,7 +10,9 @@
     "options_page": "options.html",
     "permissions": [
         "activeTab",
-        "storage"
+        "scripting",
+        "storage",
+        "tabs"
     ],
     "host_permissions": [
         "https://api.siliconflow.cn/*"
@@ -39,5 +41,8 @@
                 "<all_urls>"
             ]
         }
-    ]
+    ],
+    "background": {
+        "service_worker": "background.js"
+    }
 }

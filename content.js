@@ -507,6 +507,19 @@ class ImmersiveTranslator {
             });
         });
 
+            let textNode;
+            while ((textNode = walker.nextNode())) {
+                const parent = textNode.parentElement;
+                if (!parent) {
+                    continue;
+                }
+
+                const block = parent.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, figcaption, dt, dd, div, span');
+                addIfValid(block);
+            }
+        });
+
+        console.log('可翻译元素数量:', elements.length);
         return elements;
     }
 
