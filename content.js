@@ -254,7 +254,7 @@ class ImmersiveTranslator {
                 '.outer-wrapper',
                 '.inner-wrapper'
             ],
-            minLength: 10,
+            minLength: 5,
             maxLength: 800
         };
 
@@ -457,7 +457,7 @@ class ImmersiveTranslator {
         const targetTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'td', 'th', 'div'];
 
         // 首先尝试选择主要内容区域
-        const mainSelectors = ['main', 'article', '[role="main"]', '.content', '.documentation', '.post-content'];
+        const mainSelectors = ['main', 'article', '[role="main"]', '.content', '.documentation', '.post-content', '.docs-content', '.markdown', '.prose'];
 
         for (const selector of mainSelectors) {
             const found = document.querySelectorAll(selector);
@@ -490,6 +490,23 @@ class ImmersiveTranslator {
                 });
             });
         }
+
+        // 补充扫描：对常见承载正文的 div/span 再做一次兜底，减少漏翻
+        const supplementSelectors = [
+            'div[class*="text"]',
+            'div[class*="content"]',
+            'div[class*="description"]',
+            'span[class*="text"]'
+        ];
+
+        supplementSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(element => {
+                if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                    seen.add(element);
+                    elements.push(element);
+                }
+            });
+        });
 
         return elements;
     }
