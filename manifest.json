@@ -1,0 +1,43 @@
+{
+    "manifest_version": 3,
+    "name": "AI 沉浸式双语翻译 (优化版)",
+    "version": "2.1",
+    "description": "修复布局问题的沉浸式翻译插件",
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "AI 翻译"
+    },
+    "options_page": "options.html",
+    "permissions": [
+        "activeTab",
+        "storage"
+    ],
+    "host_permissions": [
+        "https://api.siliconflow.cn/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "cache.js",
+                "content.js"
+            ],
+            "css": [
+                "inject.css"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "cache.js"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}

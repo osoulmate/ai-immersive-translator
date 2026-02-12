@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>AI 翻译</title>
+    <style>
+        body {
+            width: 300px;
+            padding: 15px;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        input,
+        select,
+        button {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background: #ccc;
+        }
+
+        .settings {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h3>AI 沉浸式翻译</h3>
+
+        <div class="settings">
+            <label>API Key:</label>
+            <input type="password" id="apiKey" placeholder="输入硅基流动 API Key">
+
+            <label>目标语言:</label>
+            <select id="targetLang">
+                <option value="中文">中文</option>
+                <option value="英文">英文</option>
+                <option value="日文">日文</option>
+                <option value="代码解释">代码解释</option>
+            </select>
+
+            <button id="saveSettings">保存设置</button>
+        </div>
+
+        <button id="translateBtn">开始翻译本页</button>
+
+        <div style="font-size: 12px; color: #666; margin-top: 10px;">
+            提示：翻译将在当前页面直接显示
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

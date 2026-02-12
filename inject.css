@@ -1,0 +1,192 @@
+/* inject.css - 优化版，避免破坏布局 */
+
+/* 基础翻译样式 - 使用更安全的选择器 */
+.ai-translation {
+    all: unset;
+    /* 重置所有继承的样式 */
+    box-sizing: border-box !important;
+    display: inline !important;
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+/* 行内翻译样式 */
+.ai-translation-inline {
+    color: #666 !important;
+    font-size: 0.85em !important;
+    background: rgba(79, 70, 229, 0.05) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    margin-left: 8px !important;
+    border-left: 2px solid #4f46e5 !important;
+    font-family: inherit !important;
+    line-height: 1.4 !important;
+    vertical-align: baseline !important;
+    opacity: 0.9 !important;
+    transition: all 0.2s ease !important;
+}
+
+.ai-translation-inline:hover {
+    opacity: 1 !important;
+    background: rgba(79, 70, 229, 0.1) !important;
+}
+
+/* 块级翻译样式（用于段落等）- 沉浸式翻译效果 */
+.ai-translation-block {
+    display: block !important;
+    margin: 4px 0 8px 0 !important;
+    padding: 6px 0 6px 12px !important;
+    color: #666 !important;
+    font-size: 0.95em !important;
+    line-height: 1.6 !important;
+    font-family: inherit !important;
+    position: relative !important;
+    border-left: 3px solid #6366f1 !important;
+    background-color: rgba(99, 102, 241, 0.03) !important;
+    transition: all 0.2s ease !important;
+    opacity: 0.95 !important;
+}
+
+/* 悬停效果 */
+.ai-translation-block:hover {
+    opacity: 1 !important;
+    background-color: rgba(99, 102, 241, 0.06) !important;
+}
+
+/* 流式输出时的样式 */
+.ai-translation-block.streaming {
+    color: #888 !important;
+    font-style: italic !important;
+}
+
+.ai-translation-block.streaming::after {
+    content: '▌';
+    animation: blink 1s infinite;
+    margin-left: 2px;
+    color: #6366f1;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* 避免影响特定元素 */
+nav .ai-translation,
+header .ai-translation,
+footer .ai-translation,
+.navbar .ai-translation,
+.sidebar .ai-translation,
+.menu .ai-translation,
+pre .ai-translation,
+code .ai-translation,
+.highlight .ai-translation,
+.terminal .ai-translation {
+    display: none !important;
+}
+
+/* 针对特定网站的调整 */
+/* GitHub、文档类网站 */
+.markdown-body .ai-translation-block,
+.prose .ai-translation-block,
+.content .ai-translation-block {
+    margin-left: 0 !important;
+    padding: 8px 12px !important;
+    background: rgba(79, 70, 229, 0.03) !important;
+}
+
+/* 代码块旁边的翻译 */
+pre+.ai-translation-block,
+code+.ai-translation-block {
+    margin-top: -4px !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+}
+
+/* 列表项内的翻译 */
+li .ai-translation-block {
+    margin-left: 16px !important;
+    margin-top: 4px !important;
+    margin-bottom: 8px !important;
+}
+
+/* 暗黑模式支持 */
+@media (prefers-color-scheme: dark) {
+    .ai-translation-inline {
+        color: #d1d5db !important;
+        background: rgba(99, 102, 241, 0.15) !important;
+        border-left-color: #6366f1 !important;
+    }
+
+    .ai-translation-block {
+        background: rgba(99, 102, 241, 0.1) !important;
+        border-left-color: #6366f1 !important;
+        color: #e5e7eb !important;
+    }
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .ai-translation-inline {
+        display: block !important;
+        margin-left: 0 !important;
+        margin-top: 4px !important;
+        width: 100% !important;
+    }
+
+    .ai-translation-block {
+        margin-left: 12px !important;
+        padding: 8px !important;
+        font-size: 0.85em !important;
+    }
+}
+
+/* Flexbox 和 Grid 布局保护 */
+[class*="flex"] .ai-translation,
+[class*="grid"] .ai-translation {
+    flex-shrink: 0 !important;
+    align-self: flex-start !important;
+}
+
+/* 避免破坏定位布局 */
+.relative .ai-translation,
+.absolute .ai-translation,
+.fixed .ai-translation {
+    position: static !important;
+}
+
+/* 翻译操作按钮 */
+.ai-translation-actions {
+    display: none !important;
+    /* 默认隐藏，避免影响布局 */
+}
+
+.ai-translation:hover .ai-translation-actions {
+    display: inline-flex !important;
+    position: absolute !important;
+    right: 4px !important;
+    top: 4px !important;
+    background: white !important;
+    border-radius: 4px !important;
+    padding: 2px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 确保不会影响文本选择 */
+.ai-translation {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+/* 链接内的翻译 */
+a .ai-translation {
+    pointer-events: none !important;
+}
+
+/* 表单元素保护 */
+input .ai-translation,
+textarea .ai-translation,
+select .ai-translation,
+button .ai-translation {
+    display: none !important;
+}
