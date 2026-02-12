@@ -489,7 +489,6 @@ class ImmersiveTranslator {
                     }
                 });
             });
-        }
 
         // 补充扫描：对常见承载正文的 div/span 再做一次兜底，减少漏翻
         const supplementSelectors = [
@@ -575,7 +574,7 @@ class ImmersiveTranslator {
 
         // 检查是否包含太多特殊字符（可能是代码）
         const specialCharRatio = (text.match(/[{}()<>\[\]=+*&^%$#@!~`|\\]/g) || []).length / text.length;
-        if (specialCharRatio > 0.3) {
+        if (specialCharRatio > 0.45) {
             return false;
         }
 
@@ -725,11 +724,15 @@ class ImmersiveTranslator {
 
     isElementVisible(element) {
         const style = window.getComputedStyle(element);
-        return style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            style.opacity !== '0' &&
-            element.offsetWidth > 0 &&
-            element.offsetHeight > 0;
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            return false;
+        }
+
+        if (element.getClientRects().length > 0) {
+            return true;
+        }
+
+        return element.offsetWidth > 0 || element.offsetHeight > 0;
     }
 
     extractTextContent(element) {
