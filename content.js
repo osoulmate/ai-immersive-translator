@@ -451,9 +451,10 @@ class ImmersiveTranslator {
 
     collectTranslatableElements() {
         const elements = [];
+        const seen = new Set();
 
         // 简化选择器：使用更通用的选择器
-        const targetTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'td', 'th'];
+        const targetTags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'td', 'th', 'div'];
 
         // 首先尝试选择主要内容区域
         const mainSelectors = ['main', 'article', '[role="main"]', '.content', '.documentation', '.post-content'];
@@ -465,7 +466,8 @@ class ImmersiveTranslator {
                     targetTags.forEach(tag => {
                         const tagElements = context.querySelectorAll(tag);
                         tagElements.forEach(element => {
-                            if (this.shouldTranslateElement(element)) {
+                            if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                                seen.add(element);
                                 elements.push(element);
                             }
                         });
@@ -481,7 +483,8 @@ class ImmersiveTranslator {
             targetTags.forEach(tag => {
                 const tagElements = document.querySelectorAll(tag);
                 tagElements.forEach(element => {
-                    if (this.shouldTranslateElement(element)) {
+                    if (this.shouldTranslateElement(element) && !seen.has(element)) {
+                        seen.add(element);
                         elements.push(element);
                     }
                 });
@@ -522,8 +525,18 @@ class ImmersiveTranslator {
     }
 
     shouldTranslateElement(element) {
+        // 避免翻译导航/页眉/侧栏等区域
+        if (this.isInNonContentArea(element)) {
+            return false;
+        }
+
         // 检查是否可见
         if (!this.isElementVisible(element)) {
+            return false;
+        }
+
+        // 对容器型 div 做额外限制，避免把大块容器当成段落
+        if (element.tagName.toLowerCase() === 'div' && !this.isMeaningfulDivBlock(element)) {
             return false;
         }
 
@@ -572,10 +585,13 @@ class ImmersiveTranslator {
         }
 
         // 检查元素是否有代码相关的类名
-        const className = element.className || '';
-        const codeClasses = ['code', 'pre', 'highlight', 'terminal', 'snippet', 'script', 'css', 'js', 'javascript', 'html', 'json', 'xml', 'yaml', 'yml', 'md', 'markdown', 'bash', 'shell', 'console'];
-        for (const codeClass of codeClasses) {
-            if (className.includes(codeClass)) {
+        const className = typeof element.className === 'string' ? element.className : '';
+        const codeClasses = ['code', 'pre', 'highlight', 'terminal', 'snippet', 'script', 'javascript', 'typescript', 'html', 'json', 'xml', 'yaml', 'markdown', 'bash', 'shell', 'console'];
+        const classTokens = className.toLowerCase().split(/\s+/).filter(Boolean);
+
+        for (const token of classTokens) {
+            const normalizedToken = token.replace(/[^a-z0-9_-]/g, '');
+            if (codeClasses.includes(normalizedToken)) {
                 return true;
             }
         }
@@ -587,9 +603,11 @@ class ImmersiveTranslator {
             if (currentTagName === 'code' || currentTagName === 'pre') {
                 return true;
             }
-            const currentClassName = current.className || '';
-            for (const codeClass of codeClasses) {
-                if (currentClassName.includes(codeClass)) {
+            const currentClassName = typeof current.className === 'string' ? current.className : '';
+            const currentTokens = currentClassName.toLowerCase().split(/\s+/).filter(Boolean);
+            for (const token of currentTokens) {
+                const normalizedToken = token.replace(/[^a-z0-9_-]/g, '');
+                if (codeClasses.includes(normalizedToken)) {
                     return true;
                 }
             }
@@ -597,6 +615,27 @@ class ImmersiveTranslator {
         }
 
         return false;
+    }
+
+    isInNonContentArea(element) {
+        const blockedAncestor = element.closest('nav, header, footer, aside, [role="navigation"], .navbar, .sidebar, .menu, .breadcrumb, .pagination');
+        return !!blockedAncestor;
+    }
+
+    isMeaningfulDivBlock(element) {
+        const blockChildren = element.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, section, article');
+        if (blockChildren.length > 0) {
+            return false;
+        }
+
+        const directText = Array.from(element.childNodes)
+            .filter(node => node.nodeType === Node.TEXT_NODE)
+            .map(node => node.textContent || '')
+            .join(' ')
+            .trim()
+            .replace(/\s+/g, ' ');
+
+        return directText.length >= this.config.minLength && directText.length <= this.config.maxLength;
     }
 
     containsCodePatterns(text) {
